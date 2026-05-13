@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Oxploria – Sessions Photo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --border: #2a2a2a;
+    --text: #f0f0f0;
+    --muted: #888;
+    --accent: #ff6b35;
+    --accent2: #4ecdc4;
+    --done: #2d6a4f;
+    --radius: 10px;
+  }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+  /* ── Layout ── */
+  #app { display: flex; flex-direction: column; height: 100dvh; }
+  #header { flex: 0 0 auto; padding: 10px 12px 6px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  #header h1 { font-size: 15px; font-weight: 700; letter-spacing: .5px; color: var(--accent); }
+  #header h1 span { color: var(--muted); font-weight: 400; }
+  #controls { display: flex; gap: 6px; margin-top: 8px; }
+  #search { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 10px; color: var(--text); font-size: 13px; outline: none; }
+  #search:focus { border-color: var(--accent); }
+#filter-status { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 6px; color: var(--text); font-size: 12px; outline: none; }
+
+  /* ── Tabs ── */
+  #tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .tab { flex: 1; text-align: center; padding: 8px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all .2s; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Map ── */
+  #map-wrap { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+  #gps-btn { position: absolute; bottom: 16px; right: 10px; z-index: 1000; background: var(--surface); border: 1px solid var(--border); border-radius: 50%; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  #gps-btn.tracking { border-color: var(--accent2); color: var(--accent2); }
+  #stats-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(26,26,26,.9); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  /* ── List ── */
+  #list-wrap { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #list-wrap.hidden { display: none; }
+  #map-wrap.hidden { display: none; }
+  .place-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s; }
+  .place-item:active { background: var(--surface); }
+  .place-item.done-all { opacity: .45; }
+  .place-num { min-width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+  .place-num.nearest { background: var(--accent2); color: #000; }
+  .place-info { flex: 1; min-width: 0; }
+  .place-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .place-meta { font-size: 11px; color: var(--muted); margin-top: 2px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .place-dist { font-size: 12px; font-weight: 700; color: var(--accent2); min-width: 50px; text-align: right; flex-shrink: 0; margin-top: 3px; }
+  .checks { display: flex; gap: 6px; margin-top: 5px; }
+  .check-btn { font-size: 10px; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; transition: all .15s; }
+  .check-btn.active { background: var(--done); border-color: var(--done); color: #a8d5be; }
+  .gmaps-btn { font-size: 10px; padding: 2px 7px; border-radius: 4px; border: 1px solid #2a4a7f; background: #0d2244; color: #7aadff; cursor: pointer; }
+
+  /* ── Popup override ── */
+  .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0,0,0,.6); }
+  .leaflet-popup-tip { background: var(--surface); }
+  .popup-title { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .popup-dist { font-size: 12px; color: var(--accent2); margin-bottom: 8px; }
+  .popup-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .popup-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+  .popup-gmaps { background: #0d2244; color: #7aadff; border: 1px solid #2a4a7f; }
+  .popup-photo { background: var(--done); color: #a8d5be; }
+  .popup-upload { background: #2a2a5a; color: #aab; }
+
+  /* ── Next btn ── */
+  #next-btn { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); z-index: 1001; background: var(--accent); color: #fff; border: none; border-radius: 20px; padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(255,107,53,.4); display: none; white-space: nowrap; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>Oxploria <span>— Sessions Photo BCN</span></h1>
+    <div id="controls">
+      <input id="search" type="search" placeholder="Rechercher un lieu…">
+      <select id="filter-status">
+        <option value="">Tous</option>
+        <option value="todo">À faire</option>
+        <option value="taken">Photo prise</option>
+        <option value="uploaded">Uploadée</option>
+      </select>
+    </div>
+  </div>
+  <div id="tabs">
+    <div class="tab active" data-tab="map">🗺 Carte</div>
+    <div class="tab" data-tab="list">📋 Liste</div>
+  </div>
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="stats-bar">— lieux · position non activée</div>
+    <button id="gps-btn" title="Centrer sur ma position">📍</button>
+  </div>
+  <div id="list-wrap" class="hidden"></div>
+</div>
+<button id="next-btn">→ Prochain lieu dans Maps</button>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  DONNÉES — modifie cette liste avec tes lieux
+// ═══════════════════════════════════════════════════
+const PLACES_DATA = [
+  { id: 1, name: "Plage de Sant Miguel", lat: 41.375663474066606, lng: 2.190565749770339 },
+  { id: 2, name: "Plage de Bogatell", lat: 41.394483356615254, lng: 2.2070672640018905 },
+  { id: 3, name: "Plage de Mar Bella", lat: 41.398695858614985, lng: 2.2122174344304697 },
+  { id: 4, name: "Plage de la Nova Mar Bella", lat: 41.401947731104265, lng: 2.2153957736168057 },
+  { id: 5, name: "Plage de Llevant", lat: 41.40461175232943, lng: 2.2183948451649282 },
+  { id: 6, name: "Plage du Fòrum", lat: 41.4165861006521, lng: 2.2314996648625356 },
+  { id: 7, name: "Aquarium de Barcelona", lat: 41.3769737153592, lng: 2.184254376567536 },
+  { id: 8, name: "Théâtre Grec", lat: 41.36951636249742, lng: 2.1597358465490024 },
+  { id: 9, name: "La Model", lat: 41.38270292626436, lng: 2.144334063315642 },
+  { id: 10, name: "Monastère de Pedralbes", lat: 41.39567491902238, lng: 2.1122259031070225 },
+  { id: 11, name: "Pavillon Güell", lat: 41.389460857925386, lng: 2.119406420414463 },
+  { id: 12, name: "Téléphérique de Montjuïc", lat: 41.36876357583768, lng: 2.163418864682997 },
+  { id: 13, name: "Téléphérique du Port (Côté port)", lat: 41.373201027207614, lng: 2.1878010063986184 },
+  { id: 14, name: "Musée de la Musique de Barcelone", lat: 41.39850568854463, lng: 2.1851378156150028 },
+  { id: 15, name: "Zoo de Barcelona", lat: 41.38615873366411, lng: 2.187156735792679 },
+  { id: 16, name: "Place de Joan Fiveller", lat: 41.38763209263752, lng: 2.1880965353930697 },
+  { id: 17, name: "Place de Catalogne", lat: 41.38701028580722, lng: 2.170028953258698 },
+  { id: 18, name: "Murales de l’ancienne Banque de Bilbao", lat: 41.38656242651379, lng: 2.1685892625481284 },
+  { id: 19, name: "Sculpture Minerva", lat: 41.38589082763979, lng: 2.1706805149070445 },
+  { id: 20, name: "Casa Josep M. Carreras", lat: 41.38537, lng: 2.18257 },
+  { id: 21, name: "Porxos de Fontseré — Les Arcades du Parc", lat: 41.3866, lng: 2.18413 },
+  { id: 22, name: "Volta d'en Dusai — Le Passage de la Famille Dusai", lat: 41.38454, lng: 2.18284 },
+  { id: 23, name: "Casa Antoni Nadal — La Demeure du Grand Marchand", lat: 41.38509, lng: 2.1825 },
+  { id: 24, name: "Casa Teresa Torres — Le Cal-ligrama de Salvat-Papasseit", lat: 41.38535, lng: 2.18306 },
+  { id: 25, name: "Carrer de la Seca n2 — Dans l Ombre de la Monnaie Royale", lat: 41.38519, lng: 2.18185 },
+  { id: 26, name: "Immeuble du Passeig del Born, 19", lat: 41.384876, lng: 2.182738 },
+  { id: 27, name: "Maison du carrer Flassaders, 44 - le Papamosques", lat: 41.385051, lng: 2.182687 },
+  { id: 28, name: "Maison du carrer del Rec, 30", lat: 41.385292, lng: 2.18261 },
+  { id: 29, name: "Maison du carrer Calders, 15", lat: 41.384475, lng: 2.183472 },
+  { id: 30, name: "Casa Vicenc Ferrer - Carrer Comerg, 60-64", lat: 41.384807, lng: 2.184007 },
+  { id: 31, name: "Université de Barcelone — Bâtiment historique", lat: 41.38685, lng: 2.16389 },
+  { id: 32, name: "Université de Barcelone — Paranimf", lat: 41.38678, lng: 2.16376 },
+  { id: 33, name: "Casa Golferichs — El Xalet", lat: 41.3804, lng: 2.1543 },
+  { id: 34, name: "Recinte de l'Escola Industrial — Antiga Fàbrica Batlló", lat: 41.3871, lng: 2.1505 },
+  { id: 35, name: "Marché du Ninot", lat: 41.38782, lng: 2.15439 },
+  { id: 36, name: "Font del Trinxa — Le gamin de l'Eixample", lat: 41.38598, lng: 2.16281 },
+  { id: 37, name: "Immeuble de la Caixa d'Estalvis — Carrer Pelai", lat: 41.38615, lng: 2.16295 },
+  { id: 38, name: "Casa Salvador Andreu — Gran Via", lat: 41.38285, lng: 2.15838 },
+  { id: 39, name: "Cases Leandre Albareda", lat: 41.3853, lng: 2.1567 },
+  { id: 40, name: "Ancien Instituto Nacional de Previsión", lat: 41.3846, lng: 2.1578 },
+  { id: 41, name: "Palau de la Música Catalana", lat: 41.38742, lng: 2.17541 },
+  { id: 42, name: "Marché de Santa Caterina", lat: 41.38573, lng: 2.17869 },
+  { id: 43, name: "Gran Teatre del Liceu — L'Opéra de Barcelone", lat: 41.38101, lng: 2.17352 },
+  { id: 44, name: "Fondation Joan Miró", lat: 41.36864, lng: 2.16002 },
+  { id: 45, name: "MNAC — Musée National d'Art de Catalogne", lat: 41.36865, lng: 2.15298 },
+  { id: 46, name: "Font Màgica de Montjuïc — La Fontaine Magique", lat: 41.37131, lng: 2.15149 },
+  { id: 47, name: "Château de Montjuïc", lat: 41.36403, lng: 2.16624 },
+  { id: 48, name: "Bunkers del Carmel — Le Panorama Secret de Barcelone", lat: 41.4239, lng: 2.17192 },
+  { id: 49, name: "Parc du Labyrinthe d'Horta", lat: 41.43447, lng: 2.14349 }
+];
+
+// ═══════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════
+const STATE_KEY = 'oxploria_photo_state';
+let state = JSON.parse(localStorage.getItem(STATE_KEY) || '{}');
+// state[id] = { taken: bool, uploaded: bool }
+
+function getPlaceState(id) {
+  return state[id] || { taken: false, uploaded: false };
+}
+function toggleState(id, field) {
+  if (!state[id]) state[id] = { taken: false, uploaded: false };
+  state[id][field] = !state[id][field];
+  if (field === 'uploaded' && state[id].uploaded) state[id].taken = true;
+  localStorage.setItem(STATE_KEY, JSON.stringify(state));
+}
+
+// ═══════════════════════════════════════════════════
+//  MAP SETUP
+// ═══════════════════════════════════════════════════
+const map = L.map('map', { zoomControl: true }).setView([41.3874, 2.1686], 14);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+// Marker icon factory
+function makeIcon(color, label) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:${color};width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;">
+      <span style="transform:rotate(45deg);color:#fff;font-size:10px;font-weight:700">${label}</span></div>`,
+    iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -30]
+  });
+}
+
+let markers = {};
+let userMarker = null;
+let userPos = null;
+let watchId = null;
+let isTracking = false;
+let currentView = 'map';
+
+// ═══════════════════════════════════════════════════
+//  FILTERING
+// ═══════════════════════════════════════════════════
+function getFiltered() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const st = document.getElementById('filter-status').value;
+
+  return PLACES_DATA.filter(p => {
+    if (q && !p.name.toLowerCase().includes(q)) return false;
+    const ps = getPlaceState(p.id);
+    if (st === 'todo' && (ps.taken || ps.uploaded)) return false;
+    if (st === 'taken' && !ps.taken) return false;
+    if (st === 'uploaded' && !ps.uploaded) return false;
+    return true;
+  }).map(p => {
+    const dist = userPos ? haversine(userPos.lat, userPos.lng, p.lat, p.lng) : null;
+    return { ...p, dist };
+  }).sort((a, b) => {
+    if (a.dist !== null && b.dist !== null) return a.dist - b.dist;
+    return 0;
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  DISTANCE
+// ═══════════════════════════════════════════════════
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function fmtDist(m) {
+  if (m === null) return '–';
+  return m < 1000 ? Math.round(m) + ' m' : (m/1000).toFixed(1) + ' km';
+}
+
+// ═══════════════════════════════════════════════════
+//  RENDER MAP MARKERS
+// ═══════════════════════════════════════════════════
+function renderMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+
+  const places = getFiltered();
+  const nearest = places[0];
+
+  places.forEach((p, i) => {
+    const ps = getPlaceState(p.id);
+    const color = ps.uploaded ? '#2d6a4f' : ps.taken ? '#4ecdc4' : (nearest && p.id === nearest.id ? '#ff6b35' : '#e63946');
+    const label = i + 1;
+    const marker = L.marker([p.lat, p.lng], { icon: makeIcon(color, label) }).addTo(map);
+
+    marker.on('click', () => {
+      const ps2 = getPlaceState(p.id);
+      const distStr = p.dist !== null ? `<div class="popup-dist">📍 ${fmtDist(p.dist)}</div>` : '';
+      marker.bindPopup(`
+        <div class="popup-title">${p.name}</div>
+        ${distStr}
+        <div class="popup-actions">
+          <button class="popup-btn popup-gmaps" onclick="openMaps(${p.lat},${p.lng},'${escQ(p.name)}')">🗺 Google Maps</button>
+          <button class="popup-btn popup-photo ${ps2.taken?'active':''}" onclick="togglePopup(${p.id},'taken',this)">📷 ${ps2.taken?'✓ Prise':'Prise'}</button>
+          <button class="popup-btn popup-upload ${ps2.uploaded?'active':''}" onclick="togglePopup(${p.id},'uploaded',this)">☁️ ${ps2.uploaded?'✓ Uploadée':'Uploadée'}</button>
+        </div>
+      `, { maxWidth: 260 }).openPopup();
+    });
+
+    markers[p.id] = marker;
+  });
+
+  updateStats(places);
+  updateNextBtn(places);
+}
+
+window.togglePopup = function(id, field, btn) {
+  toggleState(id, field);
+  const ps = getPlaceState(id);
+  if (field === 'taken') { btn.textContent = ps.taken ? '📷 ✓ Prise' : '📷 Prise'; btn.classList.toggle('active', ps.taken); }
+  if (field === 'uploaded') { btn.textContent = ps.uploaded ? '☁️ ✓ Uploadée' : '☁️ Uploadée'; btn.classList.toggle('active', ps.uploaded); }
+  renderMarkers();
+  renderList();
+};
+
+window.openMaps = function(lat, lng, name) {
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(name)}`, '_blank');
+};
+
+function escQ(s) { return s.replace(/'/g, "\\'"); }
+
+// ═══════════════════════════════════════════════════
+//  RENDER LIST
+// ═══════════════════════════════════════════════════
+function renderList() {
+  const wrap = document.getElementById('list-wrap');
+  const places = getFiltered();
+  const nearest = places[0];
+
+  wrap.innerHTML = places.length === 0
+    ? `<div style="padding:24px;text-align:center;color:var(--muted)">Aucun lieu trouvé.</div>`
+    : places.map((p, i) => {
+        const ps = getPlaceState(p.id);
+        const isDone = ps.uploaded;
+        return `
+        <div class="place-item ${isDone?'done-all':''}" onclick="focusPlace(${p.id})">
+          <div class="place-num ${nearest && p.id === nearest.id && !isDone ? 'nearest' : ''}">${i+1}</div>
+          <div class="place-info">
+            <div class="place-name">${p.name}</div>
+            <div class="place-meta">
+              ${ps.taken ? '<span style="color:#4ecdc4">📷 Prise</span>' : ''}
+              ${ps.uploaded ? '<span style="color:#2d6a4f">☁️ Uploadée</span>' : ''}
+            </div>
+            <div class="checks">
+              <button class="check-btn ${ps.taken?'active':''}" onclick="event.stopPropagation();toggleItem(${p.id},'taken',this)">📷 Prise</button>
+              <button class="check-btn ${ps.uploaded?'active':''}" onclick="event.stopPropagation();toggleItem(${p.id},'uploaded',this)">☁️ Uploadée</button>
+              <button class="gmaps-btn" onclick="event.stopPropagation();openMaps(${p.lat},${p.lng},'${escQ(p.name)}')">🗺 Maps</button>
+            </div>
+          </div>
+          <div class="place-dist">${fmtDist(p.dist)}</div>
+        </div>`;
+      }).join('');
+}
+
+window.toggleItem = function(id, field, btn) {
+  toggleState(id, field);
+  const ps = getPlaceState(id);
+  btn.classList.toggle('active', ps[field]);
+  renderMarkers();
+  renderList();
+};
+
+window.focusPlace = function(id) {
+  const p = PLACES_DATA.find(x => x.id === id);
+  if (!p) return;
+  switchTab('map');
+  map.setView([p.lat, p.lng], 17);
+  if (markers[id]) markers[id].fire('click');
+};
+
+// ═══════════════════════════════════════════════════
+//  STATS BAR
+// ═══════════════════════════════════════════════════
+function updateStats(places) {
+  const total = places.length;
+  const taken = places.filter(p => getPlaceState(p.id).taken).length;
+  const uploaded = places.filter(p => getPlaceState(p.id).uploaded).length;
+  const distStr = userPos && places[0] && places[0].dist !== null
+    ? ` · prochain: ${fmtDist(places[0].dist)}` : '';
+  document.getElementById('stats-bar').textContent =
+    `${total} lieux · ${taken} priSes · ${uploaded} uploadées${distStr}`;
+}
+
+// ═══════════════════════════════════════════════════
+//  NEXT BTN
+// ═══════════════════════════════════════════════════
+function updateNextBtn(places) {
+  const btn = document.getElementById('next-btn');
+  const next = places.find(p => !getPlaceState(p.id).uploaded);
+  if (next && userPos && currentView === 'map') {
+    btn.style.display = 'block';
+    btn.onclick = () => openMaps(next.lat, next.lng, next.name);
+    btn.textContent = `→ ${next.name.substring(0,28)}${next.name.length>28?'…':''} (${fmtDist(next.dist)})`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  GPS
+// ═══════════════════════════════════════════════════
+document.getElementById('gps-btn').addEventListener('click', toggleGPS);
+
+function toggleGPS() {
+  if (!isTracking) startGPS();
+  else stopGPS();
+}
+
+function startGPS() {
+  if (!navigator.geolocation) { alert('Géolocalisation non supportée.'); return; }
+  isTracking = true;
+  document.getElementById('gps-btn').classList.add('tracking');
+  document.getElementById('gps-btn').textContent = '🔵';
+  watchId = navigator.geolocation.watchPosition(onPosition, onGPSError, {
+    enableHighAccuracy: true, maximumAge: 5000, timeout: 15000
+  });
+}
+
+function stopGPS() {
+  isTracking = false;
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  document.getElementById('gps-btn').classList.remove('tracking');
+  document.getElementById('gps-btn').textContent = '📍';
+  userPos = null;
+  if (userMarker) { map.removeLayer(userMarker); userMarker = null; }
+  renderMarkers(); renderList();
+}
+
+function onPosition(pos) {
+  userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  if (userMarker) map.removeLayer(userMarker);
+  userMarker = L.circleMarker([userPos.lat, userPos.lng], {
+    radius: 8, color: '#4ecdc4', fillColor: '#4ecdc4', fillOpacity: .8, weight: 2
+  }).addTo(map).bindTooltip('Vous êtes ici', { permanent: false });
+
+  // Centrage automatique seulement au premier fix
+  if (!window._firstFix) {
+    map.setView([userPos.lat, userPos.lng], 15);
+    window._firstFix = true;
+  }
+  renderMarkers(); renderList();
+}
+
+function onGPSError(err) {
+  console.warn('GPS error', err.message);
+  document.getElementById('stats-bar').textContent = 'GPS: ' + err.message;
+}
+
+// Bouton centrer (si déjà en tracking)
+document.getElementById('gps-btn').addEventListener('dblclick', () => {
+  if (userPos) map.setView([userPos.lat, userPos.lng], 16);
+});
+
+// ═══════════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+});
+
+function switchTab(name) {
+  currentView = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.getElementById('map-wrap').classList.toggle('hidden', name !== 'map');
+  document.getElementById('list-wrap').classList.toggle('hidden', name !== 'list');
+  if (name === 'map') { map.invalidateSize(); updateNextBtn(getFiltered()); }
+  else { document.getElementById('next-btn').style.display = 'none'; }
+}
+
+// ═══════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════
+function init() {
+  // Search + filter events
+  ['search', 'filter-status'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { renderMarkers(); renderList(); });
+  });
+
+  renderMarkers();
+  renderList();
+
+  // Auto-start GPS on page load (ask permission)
+  setTimeout(() => startGPS(), 500);
+}
+
+init();
+</script>
+</body>
+</html>
